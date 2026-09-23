@@ -69,6 +69,14 @@ So Actions does the testing, deploying and watching, and the server does the run
 
 ## Set and forget: one-time setup (about 20 minutes)
 
+### 0. Turn on the workflows (once)
+The workflow files are in `deploy/workflows/`. GitHub only runs them from `.github/workflows/`. Easiest way: open the repo, press `.` to open github.dev, drag the three files from `deploy/workflows/` into a new folder `.github/workflows/`, then commit. Or from a terminal:
+```bash
+git clone https://github.com/tiredicey24-hub/Heisenbot && cd Heisenbot
+mkdir -p .github && git mv deploy/workflows .github/workflows
+git commit -m "Enable workflows" && git push
+```
+
 ### 1. Get a server
 Create an **Ubuntu 24.04** server with one of the options above. When it asks for an SSH key, paste the **public** key from step 2. Write down its **public IP address**.
 
