@@ -2,6 +2,7 @@
 Description=Heisenbot dashboard tunnel
 After=network-online.target heisenbot.service
 Wants=network-online.target
+StartLimitIntervalSec=0
 
 [Service]
 User=heisenbot

@@ -1,0 +1,53 @@
+name: Deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+jobs:
+  test:
+    uses: ./.github/workflows/ci.yml
+
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      HOST: ${{ secrets.SERVER_HOST }}
+      USER: ${{ secrets.SERVER_USER }}
+      PORT: ${{ secrets.SERVER_PORT || '22' }}
+      KEY: ${{ secrets.SERVER_SSH_KEY }}
+    steps:
+      - id: gate
+        run: |
+          if [ -z "$HOST" ] || [ -z "$USER" ] || [ -z "$KEY" ]; then
+            echo "::notice::Server secrets not set yet. Tests passed, deploy skipped. See README > Set and forget."
+            echo "go=0" >> "$GITHUB_OUTPUT"
+          else
+            echo "go=1" >> "$GITHUB_OUTPUT"
+          fi
+      - if: steps.gate.outputs.go == '1'
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "$KEY" > ~/.ssh/id
+          chmod 600 ~/.ssh/id
+          ssh-keyscan -p "$PORT" -H "$HOST" >> ~/.ssh/known_hosts 2>/dev/null
+      - if: steps.gate.outputs.go == '1'
+        run: |
+          ssh -i ~/.ssh/id -p "$PORT" -o ServerAliveInterval=30 "$USER@$HOST" \
+            "curl -fsSL https://raw.githubusercontent.com/${{ github.repository }}/${{ github.sha }}/deploy/install.sh | sudo HEISENBOT_REPO=https://github.com/${{ github.repository }}.git HEISENBOT_QUIET=1 bash"
+      - if: steps.gate.outputs.go == '1'
+        run: |
+          for i in $(seq 1 12); do
+            if ssh -i ~/.ssh/id -p "$PORT" "$USER@$HOST" "curl -fs -m 10 http://127.0.0.1:8765/healthz"; then
+              echo; echo "Walter is up"; exit 0
+            fi
+            sleep 10
+          done
+          ssh -i ~/.ssh/id -p "$PORT" "$USER@$HOST" "sudo journalctl -u heisenbot -n 60 --no-pager"
+          exit 1

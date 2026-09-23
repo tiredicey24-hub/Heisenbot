@@ -1,0 +1,8 @@
+[Unit]
+Description=Heisenbot pull latest code from GitHub
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=-/usr/local/bin/walter update

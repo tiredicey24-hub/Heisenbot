@@ -396,3 +396,16 @@ def test_green_screen_is_replaced(tmp_path):
     assert green_ratio(src) > 0.9
     out = render(src, tmp_path / "o", "Someone", "huh", "", "", {**DEFAULTS, "tts": False})
     assert green_ratio(out) < 0.2
+
+
+def test_health_goes_stale(cfg, tmp_path, monkeypatch):
+    import time
+    import heisenbot.bot as botmod
+
+    monkeypatch.setattr(botmod, "LOGS", tmp_path)
+    b = botmod.Bot(cfg)
+    assert b.healthy()
+    b.state, b.beat = "listening", time.time()
+    assert b.healthy()
+    b.beat = time.time() - 600
+    assert not b.healthy()

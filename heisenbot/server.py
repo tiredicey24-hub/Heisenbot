@@ -80,7 +80,9 @@ def create_app(bot=None, password=None):
         return web.Response(text=LOGIN.replace("{msg}", ""), content_type="text/html")
 
     async def healthz(_):
-        return web.Response(text="ok")
+        if bot.healthy():
+            return web.Response(text="ok")
+        return web.Response(text="stale", status=503)
 
     def ok(data=None, **kw):
         return web.json_response({"ok": True, **({"data": data} if data is not None else {}), **kw})

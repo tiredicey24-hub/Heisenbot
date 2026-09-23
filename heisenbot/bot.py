@@ -27,6 +27,7 @@ class Bot:
         self.sent = 0
         self.fail_sends = 0
         self.started_at = None
+        self.beat = 0
         self.lock = asyncio.Lock()
         self.logfile = LOGS / f"{datetime.now():%Y-%m-%d}.jsonl"
 
@@ -139,6 +140,11 @@ class Bot:
             f.write(json.dumps(ev, ensure_ascii=False) + "\n")
         print(f"[{level}] {text}", flush=True)
 
+    def healthy(self, stale=300):
+        if self.state != "listening":
+            return True
+        return time.time() - self.beat < stale
+
     def status(self):
         return {
             "state": self.state,
@@ -216,7 +222,7 @@ class Bot:
             await asyncio.sleep(2)
             await m.prime()
             self.state = "listening"
-            self.started_at = time.time()
+            self.started_at = self.beat = time.time()
             self.log("ok", "Listening. Old messages are ignored; only new ones trigger Walter.")
             await self.notify("Walter is live", "Listening to the group chat.", "low")
             fails = 0
@@ -231,6 +237,7 @@ class Bot:
                     for msg in await m.poll():
                         await self.handle(msg)
                     fails = 0
+                    self.beat = time.time()
                 except asyncio.CancelledError:
                     raise
                 except Exception as e:

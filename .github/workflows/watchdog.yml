@@ -1,0 +1,33 @@
+name: Watchdog
+
+on:
+  schedule:
+    - cron: "17 */3 * * *"
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      HOST: ${{ secrets.SERVER_HOST }}
+      USER: ${{ secrets.SERVER_USER }}
+      PORT: ${{ secrets.SERVER_PORT || '22' }}
+      KEY: ${{ secrets.SERVER_SSH_KEY }}
+      NTFY: ${{ secrets.NTFY_TOPIC }}
+    steps:
+      - run: |
+          if [ -z "$HOST" ] || [ -z "$USER" ] || [ -z "$KEY" ]; then
+            echo "::notice::Server secrets not set, nothing to watch."; exit 0
+          fi
+          mkdir -p ~/.ssh
+          printf '%s\n' "$KEY" > ~/.ssh/id
+          chmod 600 ~/.ssh/id
+          ssh-keyscan -p "$PORT" -H "$HOST" >> ~/.ssh/known_hosts 2>/dev/null
+          if ssh -i ~/.ssh/id -p "$PORT" -o ConnectTimeout=20 "$USER@$HOST" "sudo walter health && sudo walter status"; then
+            exit 0
+          fi
+          if [ -n "$NTFY" ]; then
+            curl -s -H "Title: Walter watchdog" -H "Priority: high" -d "Server unreachable or bot was restarted. Check: sudo walter status" "https://ntfy.sh/$NTFY" >/dev/null
+          fi
+          exit 1

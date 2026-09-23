@@ -3,7 +3,7 @@
 A Walter White reaction bot for your Messenger group chat. It watches the chat through a real Chromium window logged in as a second Facebook account. When someone says a trigger word or tags `@Walter`, it picks a matching clip, burns in the sender's name and message, adds a Walter voice line, and posts the video.
 
 Two ways to run it:
-- **Cloud (recommended, your PC can be off):** a small rented Linux server runs Walter 24/7. You control him from your phone through a password-protected web page. See [Run it 24/7 in the cloud](#run-it-247-in-the-cloud).
+- **Cloud (recommended, your PC can be off):** a small Linux server runs Walter 24/7 and GitHub Actions tests, deploys and watches it. You control him from your phone through a password-protected web page. See [Set and forget](#set-and-forget-one-time-setup-about-20-minutes).
 - **Your own PC:** double-click `start_windows.bat`. The control room opens at `http://127.0.0.1:8765`.
 
 ## Right now: modes for real life
@@ -42,29 +42,118 @@ Walter checks for your message every 15 seconds and replies in the app.
 
 ## Run it 24/7 in the cloud
 
+Walter needs a real Chromium session that stays logged in for weeks, so he lives on a small Linux server. GitHub Actions does the rest for you: it tests every push, deploys it to the server, and checks on him every 3 hours.
 
-### What gets installed
-- The bot, run as a system service that restarts itself if it crashes and starts again after a server reboot.
-- A Cloudflare quick tunnel, which gives the dashboard an `https://....trycloudflare.com` address. No domain or open ports needed. The address changes when the server restarts; Walter texts the new one to your phone.
-- A password on the dashboard (random, 30-day login cookie, and 15-minute lockout after 8 wrong tries).
-- Phone alerts through the free ntfy app: new dashboard address, "Facebook wants you to log in", crash notices.
-- A remote browser panel, so you can log into Facebook on the server by tapping a screenshot on your phone.
-- A `walter` helper command on the server.
+```
+push to main ──► Actions: tests ──► Actions: SSH deploy ──► server (systemd, 24/7)
+                                                              ▲
+Actions: watchdog every 3 h ──────────────────────────────────┘
+server itself: health check every 5 min, update check nightly, restart daily
+```
+
+### Why not run the bot inside GitHub Actions?
+| | |
+|---|---|
+| Terms | GitHub's terms allow Actions "only to develop and test your application(s)". Using it as a host can get your account suspended. |
+| Time limit | A job is killed after 6 hours, so there would be gaps. |
+| Facebook | Every run gets a new machine and IP address. Facebook sees a new login from a new data centre every few hours and locks the burner account fast. |
+
+So Actions does the testing, deploying and watching, and the server does the running.
+
+### Where it can run
+| Option | Cost | Notes |
+|---|---|---|
+| **Oracle Cloud Always Free**, Ampere A1 (Arm), 2 CPU / 12 GB | 0 | Sign-up needs a card for identity. You may see "out of capacity"; try another zone later. Idle free servers can be reclaimed, so switching to Pay As You Go (still 0 on free-tier shapes) is safer. |
+| **Hetzner CX23**, 2 CPU / 4 GB | about EUR 4 to 6 a month | Easiest option. Choose Ubuntu 24.04. |
+| Any Ubuntu 22.04 / 24.04 VPS, 2 GB RAM or more | varies | Works on x86 and Arm. |
+
+## Set and forget: one-time setup (about 20 minutes)
+
+### 1. Get a server
+Create an **Ubuntu 24.04** server with one of the options above. When it asks for an SSH key, paste the **public** key from step 2. Write down its **public IP address**.
+
+### 2. Make a deploy key (on your PC)
+Open PowerShell (Windows) or Terminal (Mac/Linux):
+```bash
+ssh-keygen -t ed25519 -f heisenbot_deploy -N ""
+```
+You get two files:
+- `heisenbot_deploy.pub` is the **public** key. It goes on the server.
+- `heisenbot_deploy` is the **private** key. It goes into GitHub. Never share it anywhere else.
+
+If the server already exists, add the public key to it:
+```bash
+ssh ubuntu@YOUR_SERVER_IP "mkdir -p ~/.ssh && cat >> ~/.ssh/authorized_keys" < heisenbot_deploy.pub
+```
+Test it with `ssh -i heisenbot_deploy ubuntu@YOUR_SERVER_IP "sudo -n true && echo ok"`. It must print `ok`. The login user needs passwordless sudo, which `ubuntu` on Oracle and `root` on Hetzner already have.
+
+### 3. Add secrets to GitHub
+Go to **github.com/tiredicey24-hub/Heisenbot → Settings → Secrets and variables → Actions → New repository secret**:
+
+| Name | Value |
+|---|---|
+| `SERVER_HOST` | Server IP, e.g. `203.0.113.10` |
+| `SERVER_USER` | `ubuntu` (Oracle) or `root` (Hetzner) |
+| `SERVER_SSH_KEY` | Whole contents of `heisenbot_deploy`, including the `-----BEGIN` and `-----END` lines |
+| `SERVER_PORT` | Optional, only if SSH isn't on port 22 |
+| `NTFY_TOPIC` | Optional, fill in after step 5 so the watchdog can alert your phone |
+
+### 4. Deploy
+**Actions tab → Deploy → Run workflow**. The first install takes about 5 to 8 minutes. When it's green, Walter is running.
+
+From now on, **every push to `main` is tested and deployed automatically**. If tests fail, nothing is deployed.
+
+### 5. Get your dashboard link and password
+Passwords never appear in the Actions logs. SSH in once:
+```bash
+ssh -i heisenbot_deploy ubuntu@YOUR_SERVER_IP
+sudo walter
+```
+It prints the dashboard address (`https://....trycloudflare.com`), the password and your **ntfy topic**. Install the **ntfy** app on your phone and subscribe to that topic. The new dashboard address is sent there whenever it changes, along with login and crash alerts. Put the same topic in the `NTFY_TOPIC` secret too.
+
+### 6. Log Walter into Facebook (from your phone)
+1. Open the dashboard link and enter the password.
+2. Tap **Open browser**. The **Remote browser** panel shows the server's Chromium.
+3. Tap and type on the screenshot to log in as the **burner** account and pass any checks.
+4. Open the group chat, tap **Save chat**, then **Go live**. Leave **Dry run** on until the log looks right.
+
+Or log in on your PC with `start_windows.bat`, use **Export login**, then **Import login** on the server dashboard.
+
+After the bot is live, it resumes by itself after crashes, restarts, updates and reboots. You're done.
+
+### What keeps it alive
+| Layer | What it does |
+|---|---|
+| systemd | Restarts the bot 10 s after any crash, and starts it on boot |
+| Daily restart | Fresh Chromium every 24 h to stop memory creeping up |
+| Health timer (5 min) | Restarts the bot if `/healthz` stops answering or the chat hasn't been read for 5 min |
+| Nightly update (04:30) | Pulls `main` from GitHub, restarts only if something changed |
+| Actions watchdog (3 h) | SSHes in, runs the health check, sends a phone alert if the server can't be reached |
+| Housekeeping | Old renders deleted, logs capped at 200 MB, 2 GB swap on small servers, automatic security updates |
 
 ### Commands on the server
 | Command | What it does |
 |---|---|
-| `walter` | Show dashboard address, password, alert topic |
-| `walter logs` | Last 80 log lines |
-| `walter restart` | Restart bot and tunnel |
-| `walter update` | Pull the newest code from GitHub and restart |
-| `walter password mynewpass` | Change the dashboard password |
-| `walter stop` / `walter start` | Pause / resume the bot |
+| `sudo walter` | Dashboard address, password, ntfy topic |
+| `sudo walter status` | Bot, tunnel and health state, commit, disk, memory |
+| `sudo walter logs 200` | Last 200 log lines |
+| `sudo walter restart` | Restart bot and tunnel |
+| `sudo walter update` | Pull the newest code now |
+| `sudo walter password mynewpass` | Change the dashboard password |
+| `sudo walter stop` / `sudo walter start` | Pause / resume. While stopped, the health check and updates leave him off |
 
-One-line install on a fresh Ubuntu server:
+Manual install without Actions:
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Tiredicey/Heisenbot/main/deploy/install.sh | sudo bash
+curl -fsSL https://raw.githubusercontent.com/tiredicey24-hub/Heisenbot/main/deploy/install.sh | sudo bash
 ```
+
+### The only things you might ever do
+| When | Do |
+|---|---|
+| ntfy says "Walter needs you" | Facebook wants a login or check. Open the dashboard → Remote browser and complete it |
+| ntfy watchdog alert | Check the server is running in your cloud provider's console, then `sudo walter status` |
+| You want to change code | Push to `main`. Actions tests and deploys it |
+| Scheduled workflows stop | GitHub pauses schedules in repos with no activity for 60 days. Actions → Watchdog → Enable workflow. The server keeps running either way |
 
 ## Read this first: is it possible?
 
@@ -148,7 +237,7 @@ python -m heisenbot                         # control room
 python -m heisenbot run                     # listen with saved settings, no dashboard
 python -m heisenbot test "HAHAHA fail"      # render one reply
 python -m heisenbot starter walter.png      # build starter clips
-python -m pytest -q tests                   # 29 tests, including Chromium runs
+python -m pytest -q tests                   # 30 tests, including Chromium runs
 ```
 
 ## Troubleshooting
@@ -173,11 +262,13 @@ heisenbot/
   server.py      local control room API (aiohttp)
   web/           dashboard UI
 tests/           unit tests, plus a mock chat page for the Playwright test
+deploy/          server installer, systemd units and timers, walter helper
+.github/workflows/  ci.yml tests, deploy.yml push-to-deploy, watchdog.yml
 clips/<reaction>/*.mp4
 ```
 
 ## Status
-- Done: everything listed above. Tested here: 19 automated tests pass, including a real Chromium session against a mock chat page. Clip rendering was checked by eye.
-- Cloud mode: the password gate, remote browser (showing the real Facebook login page), login import/export, auto resume, render cleanup and the Cloudflare tunnel were all tested in a Linux sandbox. 29 tests pass.
+- Done: everything listed above. Tested here: automated tests pass, including a real Chromium session against a mock chat page. Clip rendering was checked by eye.
+- Cloud mode: the password gate, remote browser (showing the real Facebook login page), login import/export, auto resume, render cleanup and the Cloudflare tunnel were all tested in a Linux sandbox. 30 tests pass. The installer, systemd units, health timer, auto restart and tunnel were checked on a systemd host.
 - Not tested against live Facebook: I can't log into your account from here, and Facebook changes its page layout without notice. Diagnose and the editable selectors are there for when that happens.
 - Possible next step: a local model (Ollama) that picks the reaction from the whole message instead of keywords.
