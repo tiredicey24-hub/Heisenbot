@@ -42,14 +42,6 @@ Walter checks for your message every 15 seconds and replies in the app.
 
 ## Run it 24/7 in the cloud
 
-### Where it can run
-| Option | Cost | Honest notes |
-|---|---|---|
-| **Oracle Cloud Always Free**, Ampere A1 (Arm), 2 CPU / 12 GB | 0 | Oracle's docs (checked Sep 2026) say Always Free is now 2 OCPU / 12 GB, down from 4 / 24. Sign-up needs a card for identity. New servers sometimes show "out of capacity"; try again later or another zone. Oracle may reclaim a free server that sits idle for 7 days. Walter's 24/7 chat watching usually keeps it busy, but upgrading to Pay As You Go (still 0 for free-tier use) removes that risk. |
-| **Hetzner CX23**, 2 CPU / 4 GB | about EUR 4 to 6 a month (prices rose twice in 2026) | Easiest. Pick Ubuntu 24.04 when you create it. |
-| Any Ubuntu 22.04 / 24.04 VPS, at least 2 GB RAM | varies | Works on x86 and Arm. |
-| GitHub Actions / Codespaces | not allowed | GitHub's terms say Actions and Codespaces are only for developing and testing software, not for hosting a bot. Your account could be suspended. |
-| Cloudflare Workers / Pages | not possible | They can't run a real Chromium browser for hours. |
 
 ### What gets installed
 - The bot, run as a system service that restarts itself if it crashes and starts again after a server reboot.
